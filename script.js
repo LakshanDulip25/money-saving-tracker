@@ -118,8 +118,12 @@ async function saveData(data) {
       `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${DATA_FILE_PATH}`,
       { headers: { 'Authorization': `token ${GITHUB_TOKEN}` } }
     );
-    if (existing.ok) sha = (await existing.json()).sha;
-  } catch {}
+    const existingData = await existing.json();
+    console.log(existingData);  // Log the response to debug
+    if (existing.ok) sha = existingData.sha;
+  } catch (error) {
+    console.error('Error fetching file SHA:', error);
+  }
 
   // Create/Update file
   const response = await fetch(
@@ -139,7 +143,11 @@ async function saveData(data) {
     }
   );
 
-  if (!response.ok) throw new Error("GitHub save failed");
+  if (!response.ok) {
+    const error = await response.json();
+    console.error('GitHub save failed:', error);
+    throw new Error(`GitHub save failed: ${error.message}`);
+  }
 }
 
 // ========================
