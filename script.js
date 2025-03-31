@@ -1,138 +1,193 @@
-const imgbbApiKey = 'c59fd4d2f34bb26b393faaf7affe501f'; // Replace with your ImgBB API key
+// API Keys (Replace with yours)
+const IMGBB_API_KEY = 'c59fd4d2f34bb26b393faaf7affe501f'; // Get from https://api.imgbb.com/
+const GITHUB_TOKEN = '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'; // GitHub Personal Access Token
+const REPO_OWNER = 'Laxan720';
+const REPO_NAME = 'metadata';
+const DATA_FILE_PATH = 'data/data.json'; // Where to store data in your repo
 
+// DOM Elements
+const receiptInput = document.getElementById('receipt');
+const amountInput = document.getElementById('amount');
+const uploaderNameInput = document.getElementById('uploaderName');
+const submitBtn = document.getElementById('submitBtn');
+const totalAmountSpan = document.getElementById('totalAmount');
+const historyDiv = document.getElementById('history');
+
+// Global Variables
 let totalSaved = 0;
+let allData = [];
 
-// Load data from localStorage on page load
-let data = JSON.parse(localStorage.getItem('savedData')) || [];
+// Initialize App
+initApp();
 
-document.getElementById('receipt').addEventListener('change', validateForm);
-document.getElementById('amount').addEventListener('input', validateForm);
-document.getElementById('uploaderName').addEventListener('input', validateForm);
+// ========================
+// MAIN FUNCTIONS
+// ========================
+
+async function initApp() {
+  // Load existing data
+  try {
+    allData = await loadData();
+    allData.forEach(entry => {
+      updateTotal(entry.amount);
+      addHistoryItem(entry);
+    });
+  } catch (error) {
+    console.error("Failed to load data:", error);
+  }
+
+  // Setup event listeners
+  setupEventListeners();
+}
+
+async function submitData() {
+  const receipt = receiptInput.files[0];
+  const amount = amountInput.value;
+  const uploaderName = uploaderNameInput.value;
+
+  try {
+    // 1. Upload image to ImgBB
+    const imageUrl = await uploadToImgBB(receipt);
+    
+    // 2. Create new entry
+    const newEntry = {
+      amount: parseFloat(amount),
+      imageUrl,
+      uploaderName,
+      timestamp: new Date().toISOString().split('T')[0] // YYYY-MM-DD
+    };
+
+    // 3. Save to GitHub
+    allData.push(newEntry);
+    await saveData(allData);
+
+    // 4. Update UI
+    updateTotal(newEntry.amount);
+    addHistoryItem(newEntry);
+    resetForm();
+
+  } catch (error) {
+    alert(`Error: ${error.message}`);
+    console.error("Submission failed:", error);
+  }
+}
+
+// ========================
+// STORAGE FUNCTIONS
+// ========================
+
+async function uploadToImgBB(imageFile) {
+  const formData = new FormData();
+  formData.append('image', imageFile);
+
+  const response = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+    method: 'POST',
+    body: formData
+  });
+
+  const result = await response.json();
+  if (!result.success) throw new Error("ImgBB upload failed");
+  return result.data.url;
+}
+
+async function loadData() {
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${DATA_FILE_PATH}`,
+      {
+        headers: {
+          'Authorization': `token ${GITHUB_TOKEN}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      }
+    );
+
+    if (!response.ok) return [];
+    const fileData = await response.json();
+    return JSON.parse(atob(fileData.content));
+  } catch (error) {
+    return [];
+  }
+}
+
+async function saveData(data) {
+  // Get existing file SHA (required for updates)
+  let sha;
+  try {
+    const existing = await fetch(
+      `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${DATA_FILE_PATH}`,
+      { headers: { 'Authorization': `token ${GITHUB_TOKEN}` } }
+    );
+    if (existing.ok) sha = (await existing.json()).sha;
+  } catch {}
+
+  // Create/Update file
+  const response = await fetch(
+    `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${DATA_FILE_PATH}`,
+    {
+      method: 'PUT',
+      headers: {
+        'Authorization': `token ${GITHUB_TOKEN}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/vnd.github.v3+json'
+      },
+      body: JSON.stringify({
+        message: 'Updated savings data',
+        content: btoa(JSON.stringify(data, null, 2)),
+        sha: sha
+      })
+    }
+  );
+
+  if (!response.ok) throw new Error("GitHub save failed");
+}
+
+// ========================
+// UI FUNCTIONS
+// ========================
+
+function setupEventListeners() {
+  [receiptInput, amountInput, uploaderNameInput].forEach(input => {
+    input.addEventListener('input', validateForm);
+  });
+  submitBtn.addEventListener('click', submitData);
+}
 
 function validateForm() {
-  const receipt = document.getElementById('receipt').files?.[0];
-  const amount = document.getElementById('amount').value.trim();
-  const uploaderName = document.getElementById('uploaderName').value.trim();
-  const submitBtn = document.getElementById('submitBtn');
-
-  if (receipt && amount && uploaderName && isValidImage(receipt)) {
-    submitBtn.disabled = false;
-    submitBtn.classList.add('glow');
-  } else {
-    submitBtn.disabled = true;
-    submitBtn.classList.remove('glow');
-  }
+  const isValid = (
+    receiptInput.files?.length > 0 &&
+    amountInput.value.trim() !== '' &&
+    uploaderNameInput.value.trim() !== '' &&
+    isValidImage(receiptInput.files[0])
+  );
+  
+  submitBtn.disabled = !isValid;
+  submitBtn.classList.toggle('glow', isValid);
 }
 
 function isValidImage(file) {
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
-  if (!allowedTypes.includes(file.type)) {
-    alert('Please upload a valid image file (JPEG, PNG, GIF).');
-    return false;
-  }
-  return true;
-}
-
-async function uploadImage(file) {
-  const formData = new FormData();
-  formData.append('image', file);
-
-  try {
-    const response = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbApiKey}`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) throw new Error('Failed to upload image');
-    const data = await response.json();
-    return data.data?.url || '';
-  } catch (error) {
-    console.error('Error uploading image:', error.message);
-    throw error;
-  }
-}
-
-function saveDataLocally(amount, imageUrl, uploaderName) {
-  // Add new entry to the local data array
-  const timestamp = new Date().toISOString().split('T')[0]; // Save date as YYYY-MM-DD
-  const newData = { amount, imageUrl, uploaderName, timestamp };
-
-  // Push the new entry into the global data array
-  data.push(newData);
-
-  // Save updated data to localStorage
-  localStorage.setItem('savedData', JSON.stringify(data));
-
-  // Optionally, update the UI immediately
-  updateTotal(amount);
-  addHistoryItem(amount, imageUrl, uploaderName, timestamp);
+  return ['image/jpeg', 'image/png', 'image/gif'].includes(file.type);
 }
 
 function updateTotal(amount) {
-  totalSaved += parseFloat(amount);
-  document.getElementById('totalAmount').textContent = `LKR ${totalSaved.toFixed(2)}`;
+  totalSaved += amount;
+  totalAmountSpan.textContent = `LKR ${totalSaved.toFixed(2)}`;
 }
 
-function addHistoryItem(amount, imageUrl, uploaderName, timestamp) {
-  const historyDiv = document.getElementById('history');
-  const itemDiv = document.createElement('div');
-  itemDiv.className = 'history-item';
-
-  const detailsSpan = document.createElement('span');
-  detailsSpan.textContent = `${timestamp} - ${uploaderName} - LKR ${amount}`;
-
-  const link = document.createElement('a');
-  link.href = imageUrl; // Set the ImgBB URL as the href
-  link.target = '_blank'; // Open in a new tab
-  link.textContent = 'View Receipt'; // Text for the link
-
-  itemDiv.appendChild(detailsSpan);
-  itemDiv.appendChild(link);
-  historyDiv.appendChild(itemDiv);
+function addHistoryItem(entry) {
+  const item = document.createElement('div');
+  item.className = 'history-item';
+  item.innerHTML = `
+    <span>${entry.timestamp} - ${entry.uploaderName} - LKR ${entry.amount}</span>
+    <a href="${entry.imageUrl}" target="_blank">View Receipt</a>
+  `;
+  historyDiv.appendChild(item);
 }
 
-document.getElementById('submitBtn').addEventListener('click', async () => {
-  const receipt = document.getElementById('receipt').files?.[0];
-  const amount = document.getElementById('amount').value.trim();
-  const uploaderName = document.getElementById('uploaderName').value.trim();
-
-  try {
-    if (!isValidImage(receipt)) return;
-
-    const imageUrl = await uploadImage(receipt); // Get ImgBB URL
-    saveDataLocally(amount, imageUrl, uploaderName); // Save locally
-
-    // Clear form fields
-    document.getElementById('receipt').value = '';
-    document.getElementById('amount').value = '';
-    document.getElementById('uploaderName').value = '';
-    document.getElementById('submitBtn').disabled = true;
-    document.getElementById('submitBtn').classList.remove('glow');
-  } catch (error) {
-    console.error(error);
-    alert('Error: ' + error.message);
-  }
-});
-
-// Load existing data on page load
-window.addEventListener('load', () => {
-  try {
-    // Initialize total saved amount and history from the local data array
-    data.forEach((entry) => {
-      updateTotal(entry.amount);
-      addHistoryItem(entry.amount, entry.imageUrl, entry.uploaderName, entry.timestamp);
-    });
-  } catch (error) {
-    console.error('Error loading data:', error.message);
-  }
-});
-
-// Dark Mode Toggle
-const themeToggleBtn = document.getElementById('themeToggleBtn');
-let isDarkMode = false;
-
-themeToggleBtn.addEventListener('click', () => {
-  isDarkMode = !isDarkMode;
-  document.body.classList.toggle('dark-mode', isDarkMode);
-  themeToggleBtn.textContent = isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode';
-});
+function resetForm() {
+  receiptInput.value = '';
+  amountInput.value = '';
+  uploaderNameInput.value = '';
+  submitBtn.disabled = true;
+  submitBtn.classList.remove('glow');
+}
