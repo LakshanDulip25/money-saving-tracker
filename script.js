@@ -1,6 +1,6 @@
 // API Keys (Replace with yours)
 const IMGBB_API_KEY = 'c59fd4d2f34bb26b393faaf7affe501f'; // Get from https://api.imgbb.com/
-const GITHUB_TOKEN = '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'; // GitHub Personal Access Token
+const GITHUB_TOKEN = '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'; // GitHub Personal Access Token
 const REPO_OWNER = 'LakshanDulip25';
 const REPO_NAME = 'write';
 const DATA_FILE_PATH = 'data/data.json'; // Where to store data in your repo
